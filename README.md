@@ -79,5 +79,5 @@ Early stage. Topic locked and proposal submitted; TLA+ modelling begins next. Se
 
 ## Team members
 
-- _[Sreekant — add name + email]_
-- _[teammate — add name + email]_
+- Sreekant Saha — sreekantsaha2024@gmail.com
+- Manish  —
