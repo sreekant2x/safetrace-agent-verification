@@ -1,0 +1,19 @@
+# TLA+ Toolbox / TLC generated artifacts
+*.toolbox/
+states/
+*.old
+MC.tla
+MC.cfg
+*.st
+
+# Python (for the optional harness)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
