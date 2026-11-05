@@ -1,301 +1,170 @@
-# SafeTrace — Roadmap from Zero
+# SafeTrace — Roadmap (v2)
 
-This is your single "start here" guide. It assumes you know **nothing** about TLA+ or
-formal verification, and it is tied directly to the files already in this repo. Work
-through it top to bottom. Every milestone ends with a **checkpoint** — a thing you must be
-able to *do* or *explain* before moving on. If you can't pass a checkpoint, don't advance;
-the next step won't make sense.
+**This version is built around the project description you submitted:** a verified *shield*
+between the agent and its tools, a small *policy language* with LTL-style semantics, the shield
+*proved correct in Dafny*, an *optional TLA+ cross-check*, and a *Python harness* evaluated
+against prompt-injection. The earlier v1 of this file was TLA+-first; that work is not wasted —
+TLA+ is now Component C below.
 
----
-
-## 0. Read this first — the deadline reality (no sugarcoating)
-
-You said the deadline "moved to today." There are two very different things that could mean,
-and the honest answer depends on which one:
-
-- **If "today" is the idea / proposal submission** (team name, members + emails, topic,
-  short description, Git repo link): **you are already done.** The repo, README, scope, and
-  learning plan all exist. Fill in your teammate Manish's email in `README.md`, and submit
-  the repo link. Nothing in this roadmap blocks that. Go submit it.
-
-- **If "today" is the *finished, verified project* with report and demo:** be realistic —
-  that is **not achievable from zero in one day**, and pretending otherwise would set you up
-  to fail a viva you can't fake. Full model checking from a standing start is days of
-  learning plus days of modelling. Anyone claiming a beginner can produce a defensible
-  TLA+ verification project in an afternoon is lying to you.
-
-**What you *can* truthfully achieve in one focused day** (≈6–8 hrs) if forced: install the
-tools, finish the spec's three TODO actions, get TLC to go green on properties 1 and 2, and
-capture one counterexample from a broken variant. That is a real, demonstrable result. The
-report polish, non-replay property, liveness, and Python harness are *not* one-day work.
-
-Decide which deadline you're actually facing before you touch anything else. The rest of
-this roadmap is the real, honest arc — not a one-day crash plan.
+This is a "start here" guide for a complete beginner, and it is also the thing to show the
+professor. Section 1 is the one-page version for the meeting; the rest is the real plan behind it.
 
 ---
 
-## 1. The one-paragraph mental model (understand this before any tool)
+## 1. The one-page version (what to show the professor)
 
-You are **not** verifying that an AI is "safe" or "ethical." You are building a small
-**state machine** that represents the *guardrail* sitting between an LLM and the real world.
-The LLM is modelled as an adversary that can propose **any** action at any time. The
-guardrail decides what actually runs. You then ask a tool (**TLC**) to mechanically check
-*every reachable state and every ordering of events* and confirm the guardrail can never be
-pushed into a forbidden state (e.g. a dangerous action executing without approval). Testing
-tries *some* orderings; model checking tries *all* of them, within the bounds you set. That
-"all of them, within stated bounds" is the entire value proposition — and the honesty about
-the bounds is what makes it a real verification project instead of marketing.
+**Problem.** LLM agents browse, read files, and call tools from outputs we cannot predict or
+test exhaustively. We cannot verify the LLM. So we treat it as an **untrusted, fully
+nondeterministic** component and verify the **shield** that gates its actions: a layer between
+the agent and its tools that blocks any action violating a formal safety policy.
 
-If you can say that paragraph back in your own words, you understand the project's point.
-Everything below is machinery in service of it.
+**Approach — four components:**
 
----
+| # | Component | What it delivers | Status |
+|---|---|---|---|
+| **A** | **Policy language** | a small DSL for safety rules (e.g. "after reading sensitive data, never send to an external host"; "every payment must be preceded by a user confirmation"), with semantics given as **LTL-style trace properties** | core |
+| **B** | **Verified shield (Dafny)** | the shield implemented in Dafny, *proved* that for **any** sequence of actions the agent proposes, the trace the shield lets through satisfies the policy | core |
+| **C** | **TLA+ cross-check** | model-check the agent+shield composition in TLA+/TLC as an independent confirmation and to produce counterexample traces for broken variants | optional |
+| **D** | **Python harness** | compile/port the verified shield to Python, wire it to a real web agent in a local sandbox, evaluate on benign tasks **and prompt-injection attacks** | optional / demo |
 
-## Milestone 0 — Foundations (concepts only, no software yet)
+**The honest guarantee.** We prove a property of the *shield logic model*, not of the LLM, not
+of external APIs, not of the deployed system. We state that boundary explicitly.
 
-**Goal:** own five ideas so the rest isn't jargon soup.
-**Time:** 2–3 hrs reading + thinking.
+**Phasing (realistic for a 2-person beginner team):** core = A + B. C and D are stretch. The
+money-shot demo is a **broken shield** that fails verification (Dafny) and/or yields a
+counterexample trace (TLA+), showing a bug that testing would almost never catch.
 
-Learn these, in this order (`docs/learning-notes.md` lists the resources):
-
-1. **State and transition.** A "state" = the values of all your variables at one instant.
-   A "transition" = a rule that takes one state to a next state. A whole system = an initial
-   state + a next-state relation. That's it.
-2. **Invariant.** A predicate (true/false statement) that must hold in *every* reachable
-   state. "No blocklisted action is ever in the executed log" is an invariant.
-3. **Safety vs liveness.** Safety = "nothing bad ever happens" (□, *always*). Liveness =
-   "something good eventually happens" (◇, *eventually*). Your three core properties are all
-   safety. Liveness is a stretch goal — ignore it until the core works.
-4. **Reachable state / state space.** All states you can get to from the initial state by
-   applying transitions. TLC walks this exhaustively. If it's infinite, TLC never finishes —
-   hence you must keep the model small and bounded.
-5. **Model checking vs testing.** Testing samples; model checking is exhaustive over a finite
-   model. This is the sentence your professor will push on. Be able to defend both its power
-   ("for all reachable states") and its limit ("only within the finite bounds I chose").
-
-**Checkpoint 0:** Without looking, write three sentences — (a) what an invariant is, (b) why
-testing can miss an ordering bug that model checking catches, (c) what "bounded" costs you in
-terms of what you can claim. If you can't write (c) honestly, you'll fail the viva.
+**Two questions to settle with the professor at the meeting** — ask these out loud:
+1. Is **Dafny the required verification tool**, or is a policy-language + **TLA+** route acceptable
+   on its own? (This changes which component is the core — see the risk note in Section 3.)
+2. For a team of two beginners, is **A + B** an acceptable core with **C + D** as stretch, or does
+   he expect all four?
 
 ---
 
-## Milestone 1 — Tools installed and a first model run (prove the pipeline works)
+## 2. The mental model (understand before any tool)
 
-**Goal:** get *someone else's* working example to model-check green on your machine, so you
-know the toolchain is real before you fight your own model.
+- A **trace** is the sequence of actions that have actually executed so far.
+- A **policy** is a property every trace must satisfy — a safety property ("nothing bad ever
+  happens"), written in the policy language and meaning an **LTL trace property** underneath.
+- The **shield** is a function: given the trace so far and a proposed action, it returns allow or
+  deny. It only ever *appends* an allowed action to the trace.
+- **The claim we verify:** no matter what the (nondeterministic) agent proposes, every trace the
+  shield produces satisfies the policy.
+- **Two ways to establish that claim**, and you are using both:
+  - **Deductive proof (Dafny):** state an **inductive invariant** on the trace, prove it holds at
+    the start, is preserved by every shield-allowed step, and implies the policy. An SMT solver
+    (Z3) discharges the proof obligations. This is Component B.
+  - **Model checking (TLA+/TLC):** build a finite model and let the tool explore *every* reachable
+    state and ordering. This is Component C.
+
+**Blunt difference, and why it matters for your time:** model checking is push-button over a
+finite model; deductive proof in Dafny needs you to *invent the invariant* and sometimes hand Z3
+hints. Dafny is the harder skill. See Section 3.
+
+---
+
+## 3. Honest risks (read before you commit the plan)
+
+1. **Dafny is the hard part.** Deductive verification for a beginner is a real jump: you write
+   invariants, occasionally lemmas, and fight solver timeouts. Budget the most time here, and keep
+   policies simple at first. Do **not** promise the professor a finished Dafny proof of several
+   policies by a near deadline.
+2. **LTL-in-Dafny tension.** LTL trace properties are most naturally handled by a *model checker*
+   (TLA+/SPIN), not a deductive prover. Proving an LTL-style property in Dafny means encoding the
+   trace semantics and proving an inductive invariant that implies it. Doable, but keep the
+   property forms few and simple (safety/precedence), and avoid liveness in Dafny.
+3. **Four deliverables is a lot.** A + B + C + D is an ambitious scope for two beginners. Protect
+   the core (A + B). Treat C and D as stretch and say so.
+4. **Fallback that is already built:** if the Dafny proofs stall, the **TLA+ route is scaffolded**
+   in `spec/` and can model-check the same shield + policy and still give a legitimate,
+   demonstrable verification result with counterexamples. TLA+ is your safety net, not a detour.
+
+---
+
+## Milestone 0 — Concepts (no software yet)
+**Time:** 2–3 hrs. Own these: trace; safety property; LTL at the "always / after / precedes" level;
+inductive invariant; deductive proof vs. model checking; where Dafny and TLA+ each fit.
+**Checkpoint 0:** explain, in three sentences, (a) what the shield guarantees, (b) the difference
+between proving it in Dafny and checking it in TLC, (c) what the guarantee does *not* cover.
+
+## Milestone 1 — Tools, one green example each
 **Time:** 1–2 hrs.
+- **Dafny:** install VS Code + the **Dafny** extension. Run one tiny verified example (a method
+  with a pre/postcondition that verifies, then break the postcondition and watch Dafny reject it).
+- **TLA+ (for Component C):** TLA+ Toolbox (IDE + TLC), per `docs/learning-notes.md`.
+**Checkpoint 1:** you can make Dafny verify a method, then make it *fail* and read the error. That
+"fails to verify" state is the Dafny half of your demo.
 
-**What to install:**
-- **TLA+ Toolbox** (IDE + the TLC checker bundled): https://lamport.azurewebsites.net/tla/toolbox.html
-  — easiest for a beginner; everything in one window.
-- *Alternative:* the **TLA+ extension for VS Code** if you prefer VS Code. Either is fine;
-  pick one and stop shopping.
+## Milestone 2 — Component A: the policy language
+**Time:** 3–6 hrs. Define a **small** DSL — a handful of rule templates, each with an LTL meaning:
+- `NEVER <action>` → `G ¬ action` (e.g. a blocklisted tool call).
+- `<action> REQUIRES-PRIOR <action>` → `G(pay → O confirm)` (payment preceded by confirmation).
+- `AFTER <event> NEVER <event>` → `G(readSensitive → G ¬ sendExternal)`.
+Write 3–4 concrete example policies in your DSL and their LTL translation beside each. Put this in
+`docs/policy-language.md`.
+**Checkpoint 2:** for each example policy, state in one line the exact trace that would violate it.
 
-**What to do:**
-1. Install it. Open it.
-2. Go to https://learntla.com/ and do the very first worked example end-to-end — type it in,
-   create a model, run TLC, watch it say "No errors."
-3. Deliberately break that example (change one line so an invariant fails) and run again, so
-   you see what a **failure + counterexample trace** looks like. This is the single most
-   important UI skill in the whole project — the demo depends on it.
+## Milestone 3 — Component B: the Dafny shield (the core work)
+**Time:** 8–16 hrs (the big one). In a new `dafny/` folder:
+1. Model `Action`, and a trace as `seq<Action>`.
+2. Write `PolicyHolds(trace)` as a predicate (start with the `NEVER` policy — easiest).
+3. Write the `Shield` step: it appends a proposed action only when allowed.
+4. State an **inductive invariant** and prove, with Dafny `assert`s/lemmas, that it holds initially,
+   is preserved by every shield-allowed step, and implies `PolicyHolds`.
+Start with one policy (`NEVER` / blocklist), get it fully verified, *then* add precedence
+(`REQUIRES-PRIOR`), where the shield tracks whether the prerequisite has occurred.
+**Checkpoint 3:** Dafny verifies the shield for the blocklist policy with no errors, and you can
+point at the invariant line that carries the proof.
 
-**Checkpoint 1:** You can create a model, run TLC to green, introduce a bug, and read the
-counterexample trace it prints (state 1 → state 2 → … → the violating state). If you can't
-read a trace yet, re-do this before touching `AgentGuardrail.tla`.
+## Milestone 4 — The demonstration (money-shot)
+**Time:** 1–2 hrs once M3 verifies. Introduce **one** subtle flaw (e.g. the shield checks the
+prerequisite but a reordering lets the action slip through). Show either Dafny **failing to
+verify** the flawed shield, or — via Component C — **TLC printing a concrete counterexample trace**.
+Save it. This is the single most persuasive artifact: testing would almost never hit that ordering.
+**Checkpoint 4:** a saved failure (Dafny error or TLC trace) you can walk through step by step.
 
----
+## Milestone 5 — Component C: TLA+ cross-check (optional, already scaffolded)
+Use `spec/AgentGuardrail.tla` (finish `Route`/`Approve`/`Execute`, see the v1 notes in git history)
+to model-check the same shield + policy and generate counterexamples for broken variants.
+**Checkpoint 5:** TLC runs green on the correct model and red (with a trace) on a broken one.
 
-## Milestone 2 — Enough TLA+ to read our own spec (`spec/AgentGuardrail.tla`)
+## Milestone 6 — Component D: Python harness + prompt-injection eval (optional)
+Port the verified shield logic to Python, wire it to a simple web agent in a **local sandbox**,
+and evaluate on benign tasks and prompt-injection attacks. This is engineering for the demo, not
+verification — never let it blur into "so the agent is verified safe." Only the shield *logic* is.
+**Checkpoint 6:** the harness blocks a scripted prompt-injection attack that tries a policy-violating
+action, and you can show the shield denying it.
 
-**Goal:** be able to read the existing skeleton line by line and explain it.
-**Time:** 3–5 hrs over learntla.com.
-
-From https://learntla.com/, you specifically need (skip the rest for now):
-- Modules, `EXTENDS`, `CONSTANTS`, `VARIABLES`.
-- `Init` (initial state) and `Next` (next-state relation), and the `Spec == Init /\ [][Next]_vars` idiom.
-- Operators you'll actually use: `\E` (there exists), `\A` (for all), `\in`, `\subseteq`,
-  `\cup`, set-builder `{ x \in S : P(x) }`, records/sequences (`Seq`, `Len`, `Append`),
-  and `IF/THEN/ELSE` or disjunction `\/` for branching.
-- How a transition expresses "the next value of a variable" with the prime: `proposed' = a`,
-  and `UNCHANGED << ... >>` for variables that don't change.
-
-Now open `spec/AgentGuardrail.tla` and map each piece to what you just learned:
-- `CONSTANTS Actions, Irreversible, Blocklist` — the finite sets you'll fix in the `.cfg`.
-- `VARIABLES pc, proposed, approved, executed` — `pc` is "where in the loop we are".
-- `Init` sets the empty starting state.
-- `Propose` is **already written** — read it until you can explain *why* `\E a \in Actions`
-  models "the LLM can propose anything" (TLC explores every choice of `a` as a separate branch).
-
-**Checkpoint 2:** Explain `Propose` out loud, including why the existential quantifier is
-exactly how you encode an adversarial model. This is a near-certain viva question.
-
----
-
-## Milestone 3 — Finish the spec: the three TODO actions (the core work)
-
-This is the heart of the project. In `spec/AgentGuardrail.tla`, `Route`, `Approve`, and
-`Execute` are stubbed as `FALSE`. You will replace them. Below is the **design and the
-reasoning**; write the TLA+ yourself where it says "your task," and run TLC after each change.
-Do **not** paste a finished spec you can't explain — the whole point is that you can defend it.
-
-**First, a design decision you must make (and be able to justify):** the skeleton has
-`executed \in Seq(Actions)`, a sequence that can grow forever → an infinite state space →
-TLC never terminates. Two honest fixes:
-- **(A) Single-request model (do this first):** the agent handles exactly one proposed action
-  to `"Done"` and stops. Tiny state space, lets you check properties 1 and 2 immediately.
-- **(B) Bounded looping model (do this for property 3 + the demo):** after `"Done"`, return to
-  `"Idle"` to handle another request, but add a `CONSTRAINT` in the `.cfg` bounding the run
-  (e.g. `Len(executed) =< 2`). You need more than one execution to even *express* "an approval
-  was replayed."
-
-Start with (A). Here is the recommended shape (states: `"Idle"`, `"Proposed"`,
-`"NeedsApproval"`, `"Cleared"`, `"Done"` — you may extend `TypeOK` to add the new states):
-
-**`Route`** — runs from `"Proposed"`. Classify the proposed action and route it:
-```
-Route ==
-    /\ pc = "Proposed"
-    /\ \/ /\ proposed \in Blocklist          \* blocklisted → reject, never executes
-          /\ pc' = "Done"
-          /\ UNCHANGED << proposed, approved, executed >>
-       \/ /\ proposed \notin Blocklist
-          /\ proposed \in Irreversible         \* irreversible → must be approved first
-          /\ pc' = "NeedsApproval"
-          /\ UNCHANGED << proposed, approved, executed >>
-       \/ /\ proposed \notin Blocklist
-          /\ proposed \notin Irreversible      \* reversible → cleared to run directly
-          /\ pc' = "Cleared"
-          /\ UNCHANGED << proposed, approved, executed >>
-```
-*Why it's shaped this way:* blocklisted never reaches a state where it can execute — that is
-the structural guarantee behind property 2.
-
-**`Approve`** — runs from `"NeedsApproval"`. Record the approval and clear the action:
-```
-Approve ==
-    /\ pc = "NeedsApproval"
-    /\ approved' = approved \cup { proposed }   \* record a granted approval
-    /\ pc' = "Cleared"
-    /\ UNCHANGED << proposed, executed >>
-```
-
-**`Execute`** — *your task.* It runs from `"Cleared"`, appends `proposed` to `executed`, and
-goes to `"Done"`. The crucial preconditions — write and justify them:
-- If `proposed \in Irreversible`, require `proposed \in approved` **and consume it** (remove it:
-  `approved' = approved \ { proposed }`). Consumption is the mechanism that stops replay.
-- If `proposed` is reversible, just execute (no approval needed).
-- Use `executed' = Append(executed, proposed)`.
-
-Write `Execute`, then update `Next` (it already lists all four) and `TypeOK` for the new `pc`
-values.
-
-**Checkpoint 3a:** TLC runs on model (A) with `INVARIANT TypeOK` and `INVARIANT NoBlocklisted`
-and reports **no errors**. If `NoBlocklisted` fails, your `Route` let a blocklisted action
-through — read the trace and fix it.
-
-**Checkpoint 3b:** You can explain, pointing at your own lines, exactly which line guarantees
-property 2, and which precondition in `Execute` will guarantee property 1.
-
----
-
-## Milestone 4 — Write and check the formal properties (properties 1 and 3)
-
-In `spec/AgentGuardrail.tla`, properties 1 and 3 are comments/placeholders. Now make them real.
-
-**Property 1 — no irreversible action executes without an approval having been granted.**
-The clean way: define it as an invariant over the execution guarded by your `Execute`
-precondition. Simplest beginner version: an invariant stating that whenever an irreversible
-action sits in `executed`, the path that put it there required `proposed \in approved`. Because
-your `Execute` precondition already enforces this, the honest check is: *remove* the precondition
-(that's the broken variant in Milestone 6) and confirm TLC then finds a violation. State the
-invariant, add `INVARIANT NoUnapprovedIrreversible` to `AgentGuardrail.cfg`, run green.
-
-**Property 3 — one approval authorises at most one action (non-replay).** This is the one that
-*requires model (B)* — you cannot observe a replay with only one execution. Switch to the
-bounded looping model, keep the `approved' = approved \ {proposed}` consumption, and check that
-no irreversible action can appear in `executed` twice off a single `Approve`. This is genuinely
-the hardest property; budget real time, and it's acceptable to present it as "designed and
-partially checked" if you run short — just say so honestly in the report.
-
-**Checkpoint 4:** Properties 1 (and, if reached, 3) added to both `.tla` and `.cfg`, TLC green
-on the correct spec.
-
----
-
-## Milestone 5 — The money shot: the broken variant + counterexample (the demo)
-
-**Goal:** the single most persuasive artifact in the whole project.
-**Time:** 1–2 hrs once Milestone 3 works.
-
-1. Copy `spec/AgentGuardrail.tla` to `spec/AgentGuardrail_Broken.tla` (and a `_Broken.cfg`).
-   `spec/README.md` already anticipates this file.
-2. Introduce **one** subtle flaw. The best one: make the approval-check and the execution
-   **non-atomic**, or simply **drop the consumption** (`approved' = approved` instead of
-   removing it), or drop the `proposed \in approved` precondition.
-3. Run TLC. It will print a **counterexample trace** — the exact state-by-state sequence by
-   which a forbidden action slips through.
-4. Save that trace. Screenshot it. This is your demo: "testing would almost never hit this
-   ordering; the model checker found it mechanically in seconds."
-
-**Checkpoint 5:** You have a saved counterexample trace and can walk someone through it state
-by state, explaining which flawed line each step exploits.
-
----
-
-## Milestone 6 — Stretch goals (only if the core is solid)
-
-Do **not** start these until Milestones 3–5 are green and the report's core is drafted.
-- **Liveness:** "every legitimate request eventually executes or is rejected." Needs temporal
-  operators (◇) and **fairness** assumptions. Conceptually a step up; skip under time pressure.
-- **Python harness:** a small Python script wiring a real LLM agent's proposed actions through
-  the *exact* guardrail logic you verified, so the demo shows model and running system side by
-  side. This is engineering, not verification — valuable for the demo, worthless for the
-  correctness claim. Treat it as a demo prop, and never let it blur into "so the agent is
-  verified safe." It isn't; only the logic model is.
-
----
-
-## Milestone 7 — Report and defense (`report/OUTLINE.md`)
-
-The outline already has the right sections. Fill them with claims matched to evidence. The two
-sections that earn or lose you the grade:
-- **Section 5 (Properties & results):** state each property formally, report what TLC checked,
-  the state-space size it reported, and paste the counterexample from the broken variant.
-- **Section 6 (Limitations & honest scope):** the bounds you chose, and the explicit statement
-  that you verified the guardrail logic model — *not* the LLM, *not* external APIs, *not* the
-  deployed system. Examiners reward this honesty and punish its absence.
-
-**Viva prep — questions you will be asked, and must answer without a script:**
-- Why model checking and not testing? (Ordering bugs; exhaustive over a finite model.)
-- What exactly did you verify, and what did you *not*? (The guardrail logic; not the model.)
-- Why is the LLM an `\E a \in Actions`? (Adversarial nondeterminism.)
-- What do your finite bounds cost you? (A guarantee only up to those bounds.)
-- Walk me through the counterexample. (From your saved trace.)
-
-**Checkpoint 7:** You can answer all five out loud, cold, without notes.
+## Milestone 7 — Report + viva
+Fill `report/OUTLINE.md`. The two sections that earn the grade: **Results** (what you proved in
+Dafny / checked in TLC, with the counterexample) and **Limitations & honest scope** (you verified
+the shield logic model — not the LLM, not external APIs, not the deployed system).
+**Viva questions to rehearse:** why a shield and not "verify the AI"? Why is the agent
+nondeterministic? What does your inductive invariant say and why does it imply the policy? Dafny
+proof vs. TLC check — when each? What do your bounds / assumptions cost you? Walk me through the
+counterexample.
 
 ---
 
 ## Time budget (honest)
 
-| Phase | Realistic time for a beginner |
+| Phase | Realistic beginner time |
 |---|---|
-| Milestone 0 — concepts | 2–3 hrs |
-| Milestone 1 — tools + first run | 1–2 hrs |
-| Milestone 2 — read our spec | 3–5 hrs |
-| Milestone 3 — finish spec (model A) | 4–8 hrs |
-| Milestone 4 — properties 1 & 3 | 3–6 hrs |
-| Milestone 5 — broken variant demo | 1–2 hrs |
-| Milestone 6 — stretch | 6–15 hrs (optional) |
-| Milestone 7 — report + viva prep | 4–8 hrs |
+| M0 concepts | 2–3 hrs |
+| M1 tools | 1–2 hrs |
+| M2 policy language (A) | 3–6 hrs |
+| M3 Dafny shield (B) | 8–16 hrs |
+| M4 demo | 1–2 hrs |
+| M5 TLA+ cross-check (C) | 6–12 hrs (optional) |
+| M6 Python harness (D) | 8–15 hrs (optional) |
+| M7 report + viva | 4–8 hrs |
 
-Core project (0–5 + 7, no stretch): **roughly 18–34 hours** of real work. At your stated
-10–20 hrs/week, that's about **1.5–2.5 weeks**. Anyone who tells you it's a one-day job is
-either wrong or not counting the learning.
+Core (A + B + demo + report): **~20–35 hrs**. All four components: **35–60+ hrs** across two
+people — a semester project, not a one-week one. Anyone who tells you the Dafny proof is quick is
+wrong.
 
-## What to do *literally today*
-
-1. Settle which deadline you're facing (Section 0). If it's the proposal — submit and relax.
-2. Fill Manish's email in `README.md`.
-3. Start Milestone 0 and 1. Getting TLC to run one green example today is a real win and
-   de-risks everything after it.
+## For the meeting tomorrow
+1. Present Section 1 (problem, four components, phasing, honest guarantee).
+2. Ask the two questions in Section 1 — especially whether Dafny is required or a TLA+ route is OK.
+3. Propose **A + B as the core, C + D as stretch**, and let the professor calibrate the scope.
